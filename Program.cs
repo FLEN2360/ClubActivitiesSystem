@@ -1,3 +1,6 @@
+using ClubActivitiesSystem.Db;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 namespace ClubActivitiesSystem
 {
     public class Program
@@ -8,6 +11,9 @@ namespace ClubActivitiesSystem
 
             // Add services to the container.
             builder.Services.AddControllersWithViews();
+
+            builder.Services.AddDbContext<DBContext>(optios =>
+                optios.UseSqlServer(builder.Configuration.GetConnectionString("DBConnectionString")));
 
             var app = builder.Build();
 
@@ -23,6 +29,8 @@ namespace ClubActivitiesSystem
             app.UseStaticFiles();
 
             app.UseRouting();
+
+            app.UseMiddleware<SessionAuthMiddleware>();
 
             app.UseAuthorization();
 

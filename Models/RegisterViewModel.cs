@@ -1,16 +1,25 @@
 namespace ClubActivitiesSystem.Models
 {
-  using System.ComponentModel.DataAnnotations;
-  public class RegisterViewModel
-  {
-    [Required(ErrorMessage = "Email 不為空")]
-    [EmailAddress]
-    public required string Email { get; set; }
-    [Required(ErrorMessage = "密碼不為空")]
-    [DataType(DataType.Password)]
-    public required string Password { get; set; }
-    [Compare("Password", ErrorMessage = "密碼不匹配")]
-    public required string ConfirmPassword { get; set; }
-  }
-}
+    using System.ComponentModel.DataAnnotations;
 
+    public class RegisterViewModel
+    {
+        [Required]
+        public string Name { get; set; } = default!;
+
+        [Required]
+        [EmailAddress]
+        public string Email { get; set; } = default!;
+
+        [Required]
+        public string? PhoneNumber { get; set; }
+
+        [Required]
+        [MinLength(6, ErrorMessage = "密碼至少需要 6 字元")]
+        public string Password { get; set; } = default!;
+
+        [Required]
+        [Compare("Password", ErrorMessage = "兩次密碼輸入不一致")]
+        public string ConfirmPassword { get; set; } = default!;
+    }
+}
