@@ -117,9 +117,12 @@ namespace ClubActivitiesSystem.Db
                 .HasForeignKey(er => er.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            // 將原本的唯一索引改為只對 user_id IS NOT NULL 生效（避免多位訪客以 user_id = NULL 重複報名被阻擋）
             modelBuilder.Entity<EventRegistration>()
                 .HasIndex(er => new { er.EventId, er.UserId })
-                .IsUnique(); // 防止重複報名
+                .HasDatabaseName("IX_event_registrations_event_id_user_id")
+                .HasFilter("[user_id] IS NOT NULL")
+                .IsUnique();
 
             // ===== Comment =====
             modelBuilder.Entity<Comment>()

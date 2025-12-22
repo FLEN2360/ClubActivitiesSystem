@@ -20,9 +20,9 @@ namespace ClubActivitiesSystem.Controllers
             _logger = logger;
         }
 
-        // 方便取用目前使用者資訊
-        private string? CurrentUserId => User.FindFirstValue(ClaimTypes.NameIdentifier);
-        private bool IsAdmin => User.IsInRole("Admin");
+        // 方便取用目前使用者資訊（改為 null-safe）
+        private string? CurrentUserId => User?.FindFirstValue(ClaimTypes.NameIdentifier);
+        private bool IsAdmin => User?.IsInRole("Admin") ?? false;
 
         private bool IsEventOwner(Event e) => e.CreatedBy == CurrentUserId;
 
@@ -76,11 +76,11 @@ namespace ClubActivitiesSystem.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(CreateEventViewModel model)
         {
-            var user = HttpContext.Items["User"] as User;
-            if (user == null)
+            // pattern matching 確保 user 在後續使用時為非 null
+            if (HttpContext.Items["User"] is not User user)
                 return RedirectToAction("Login", "Account");
 
-            if (model.StartTime >= model.EndTime)
+            if (model.StartTime.HasValue && model.EndTime.HasValue && model.StartTime.Value >= model.EndTime.Value)
                 ModelState.AddModelError(nameof(model.EndTime), "結束時間必須晚於開始時間。");
 
             if (!ModelState.IsValid)
@@ -135,31 +135,41 @@ namespace ClubActivitiesSystem.Controllers
 
             if (!IsEventOwner(ev) && !IsAdmin) return Forbid();
 
-            // datetime-local 送回來通常是 Unspecified，這裡統一當 Local 轉 UTC 儲存
-            model.StartTime = NormalizeToUtc(model.StartTime);
-            model.EndTime = NormalizeToUtc(model.EndTime);
+            var updated = await TryUpdateModelAsync(ev, "",
+                e => e.Title,
+                e => e.Description,
+                e => e.Location,
+                e => e.StartTime,
+                e => e.EndTime,
+                e => e.Status,
+                e => e.ClubId);
 
-            if (model.StartTime >= model.EndTime)
-                ModelState.AddModelError(nameof(model.EndTime), "結束時間必須晚於開始時間。");
-
-            if (!ModelState.IsValid)
+            if (!updated)
             {
+                foreach (var kv in ModelState.Where(k => k.Value.Errors.Count > 0))
+                {
+                    var key = kv.Key;
+                    var errors = string.Join("; ", kv.Value.Errors.Select(er => er.ErrorMessage));
+                    _logger.LogWarning("ModelState error on {Key}: {Errors}", key, errors);
+                }
+
                 ViewBag.Clubs = await db.Clubs.AsNoTracking().OrderBy(c => c.ClubName).ToListAsync();
-                return View(model);
+                return View(ev);
             }
 
-            ev.Title = model.Title;
-            ev.Description = model.Description;
-            ev.Location = model.Location;
-            ev.StartTime = model.StartTime;
-            ev.EndTime = model.EndTime;
-            ev.Status = model.Status;
-            ev.ClubId = model.ClubId;
+            ev.StartTime = NormalizeToUtc(ev.StartTime);
+            ev.EndTime = NormalizeToUtc(ev.EndTime);
+
+            if (ev.StartTime >= ev.EndTime)
+            {
+                ModelState.AddModelError(nameof(ev.EndTime), "結束時間必須晚於開始時間。");
+                ViewBag.Clubs = await db.Clubs.AsNoTracking().OrderBy(c => c.ClubName).ToListAsync();
+                return View(ev);
+            }
 
             await db.SaveChangesAsync();
             TempData["Message"] = "活動已更新。";
 
-            // 依需求：更新後跳回活動列表
             return RedirectToAction(nameof(Index));
         }
 
@@ -202,46 +212,116 @@ namespace ClubActivitiesSystem.Controllers
         }
 
         // ===== 活動報名 =====
-        [HttpPost]
-        [ValidateAntiForgeryToken]
+        // GET: 顯示訪客填表（若已登入仍可看到表單，但表單欄位可為空）
+        [AllowAnonymous]
+        [HttpGet]
         public async Task<IActionResult> Register(int eventId)
         {
-            if (CurrentUserId == null)
-                return RedirectToAction("Login", "Account");
+            // pattern matching 直接在 await 表達式做 null 判斷，讓編譯器明確 ev 非 null
+            if (await db.Events.AsNoTracking().FirstOrDefaultAsync(e => e.Id == eventId) is not Event ev)
+                return NotFound();
 
-            var ev = await db.Events.AsNoTracking().FirstOrDefaultAsync(e => e.Id == eventId);
-            if (ev == null) return NotFound();
-
-            if (ev.EndTime <= DateTime.UtcNow)
+            var evEnd = ev.EndTime;
+            if (evEnd <= DateTime.UtcNow)
             {
                 TempData["Error"] = "活動已結束，無法報名。";
                 return RedirectToAction(nameof(Details), new { id = eventId });
             }
 
-            var existing = await db.EventRegistrations
-                .FirstOrDefaultAsync(r => r.EventId == eventId
-                                       && r.UserId == CurrentUserId
-                                       && r.Status != "Cancelled");
+            var vm = new GuestRegistrationViewModel { EventId = eventId };
+
+            // 以 local copy 取得 user id，避免分析器誤判
+            var currentUserId = CurrentUserId;
+            if (currentUserId != null)
+            {
+                var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == currentUserId);
+                // 安全賦值（user 可能為 null）
+                vm.Name = user?.Name;
+                vm.Email = user?.Email;
+                vm.Phone = user?.PhoneNumber;
+            }
+
+            return View(vm);
+        }
+
+        // POST: 支援已登入使用者與訪客（未登入者）
+        [AllowAnonymous]
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Register(GuestRegistrationViewModel model)
+        {
+            if (await db.Events.AsNoTracking().FirstOrDefaultAsync(e => e.Id == model.EventId) is not Event ev)
+                return NotFound();
+
+            var evEnd = ev.EndTime;
+            if (evEnd <= DateTime.UtcNow)
+            {
+                TempData["Error"] = "活動已結束，無法報名。";
+                return RedirectToAction(nameof(Details), new { id = model.EventId });
+            }
+
+            if (CurrentUserId == null)
+            {
+                if (string.IsNullOrWhiteSpace(model.Name))
+                    ModelState.AddModelError(nameof(model.Name), "請輸入姓名。");
+
+                if (string.IsNullOrWhiteSpace(model.Email))
+                    ModelState.AddModelError(nameof(model.Email), "請輸入電子郵件。");
+            }
+
+            if (!ModelState.IsValid)
+            {
+                return View(model);
+            }
+
+            var currentUserId = CurrentUserId;
+
+            EventRegistration? existing;
+            if (currentUserId != null)
+            {
+                existing = await db.EventRegistrations
+                    .FirstOrDefaultAsync(r => r.EventId == model.EventId
+                                           && r.UserId == currentUserId
+                                           && r.Status != "Cancelled");
+            }
+            else
+            {
+                var email = model.Email?.Trim().ToLowerInvariant() ?? string.Empty;
+                existing = await db.EventRegistrations
+                    .FirstOrDefaultAsync(r => r.EventId == model.EventId
+                                           && r.UserId == null
+                                           && r.GuestEmail != null
+                                           && r.GuestEmail.ToLower() == email
+                                           && r.Status != "Cancelled");
+            }
 
             if (existing != null)
             {
                 TempData["Error"] = "您已報名此活動。";
-                return RedirectToAction(nameof(Details), new { id = eventId });
+                return RedirectToAction(nameof(Details), new { id = model.EventId });
             }
 
-            db.EventRegistrations.Add(new EventRegistration
+            var registration = new EventRegistration
             {
-                EventId = eventId,
-                UserId = CurrentUserId!,
+                EventId = model.EventId,
+                UserId = currentUserId,
                 RegisteredAt = DateTime.UtcNow,
                 Status = "Pending",
                 PaymentStatus = "Unpaid"
-            });
+            };
 
+            if (currentUserId == null)
+            {
+                registration.GuestName = model.Name?.Trim();
+                registration.GuestEmail = model.Email?.Trim();
+                registration.GuestPhone = model.Phone?.Trim();
+            }
+
+            db.EventRegistrations.Add(registration);
             await db.SaveChangesAsync();
 
             TempData["Message"] = "報名成功（待審核/付款）。";
-            return RedirectToAction(nameof(Details), new { id = eventId });
+            return RedirectToAction(nameof(Details), new { id = model.EventId });
         }
 
         // ===== 活動取消報名 =====
@@ -274,7 +354,10 @@ namespace ClubActivitiesSystem.Controllers
         [HttpGet]
         public async Task<IActionResult> RegistrationList(int eventId)
         {
-            var ev = await db.Events.AsNoTracking().FirstOrDefaultAsync(e => e.Id == eventId);
+            var ev = await db.Events
+                .AsNoTracking()
+                .Include(e => e.Club)
+                .FirstOrDefaultAsync(e => e.Id == eventId);
             if (ev == null) return NotFound();
 
             if (!IsEventOwner(ev) && !IsAdmin) return Forbid();
