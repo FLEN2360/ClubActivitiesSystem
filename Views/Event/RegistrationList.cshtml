@@ -45,18 +45,48 @@
         </tr>
     </thead>
     <tbody>
-        @foreach (var r in Model)
+        @if (Model == null)
         {
             <tr>
-                <td>@r.User?.Name (@r.UserId)</td>
-                <td>@r.RegisteredAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</td>
-                <td>
-                    <span class="badge @(r.Status == "Cancelled" ? "bg-danger" : "bg-success")">@r.Status</span>
-                </td>
-                <td>
-                    <span class="badge @(r.PaymentStatus == "Paid" ? "bg-success" : "bg-secondary")">@r.PaymentStatus</span>
-                </td>
+                <td colspan="4" class="text-center text-muted">目前無報名資料。</td>
             </tr>
+        }
+        else
+        {
+            @foreach (var r in Model)
+            {
+                <tr>
+                    <td>
+                        @if (r.User != null)
+                        {
+                            @($"{r.User.Name} ({r.UserId})")
+                        }
+                        else
+                        {
+                            @(string.IsNullOrWhiteSpace(r.GuestName) ? "訪客" : r.GuestName)
+
+                            @if (!string.IsNullOrWhiteSpace(r.GuestEmail) || !string.IsNullOrWhiteSpace(r.GuestPhone))
+                            {
+                                <div><small class="text-muted">
+                                    @(string.IsNullOrWhiteSpace(r.GuestEmail) ? "" : r.GuestEmail)
+                                    @if (!string.IsNullOrWhiteSpace(r.GuestEmail) && !string.IsNullOrWhiteSpace(r.GuestPhone))
+                                    {
+                                        @: | 
+                                    }
+                                    @(string.IsNullOrWhiteSpace(r.GuestPhone) ? "" : r.GuestPhone)
+                                </small></div>
+                            }
+                        }
+                    </td>
+                    <td>@r.RegisteredAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</td>
+                    <td>
+                        <span class="badge @(r.Status == "Cancelled" ? "bg-danger" : "bg-success")">@r.Status</span>
+                    </td>
+                    <td>
+                        <span class="badge @(r.PaymentStatus == "Paid" ? "bg-success" : "bg-secondary")">@r.PaymentStatus</span>
+                    </td>
+                </tr>
+            }
         }
     </tbody>
 </table>

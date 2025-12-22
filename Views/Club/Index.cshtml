@@ -1,14 +1,25 @@
 ﻿@using ClubActivitiesSystem.Models.ViewModel
+@using System.Linq
 @model ClubPagedResultViewModel
 
 @{
     ViewData["Title"] = "社團列表";
 
     var query = Context.Request.Query;
-    string keyword = query["Keyword"];
-    string sortBy = string.IsNullOrEmpty(query["SortBy"]) ? "created" : query["SortBy"];
-    string sortOrder = string.IsNullOrEmpty(query["SortOrder"]) ? "desc" : query["SortOrder"];
-    int pageSize = string.IsNullOrEmpty(query["PageSize"]) ? Model.PageSize : int.Parse(query["PageSize"]);
+    string keyword = (string?)query["Keyword"] ?? string.Empty;
+    string sortBy = string.IsNullOrWhiteSpace((string?)query["SortBy"]) ? "created" : ((string?)query["SortBy"] ?? "created");
+    string sortOrder = string.IsNullOrWhiteSpace((string?)query["SortOrder"]) ? "desc" : ((string?)query["SortOrder"] ?? "desc");
+
+    int pageSize;
+    var pageSizeStr = (string?)query["PageSize"];
+    if (!int.TryParse(pageSizeStr, out pageSize))
+    {
+        pageSize = Model?.PageSize ?? 10;
+    }
+
+    // 先建立 null-safe 列表再使用
+    var clubs = Model?.Clubs ?? Enumerable.Empty<ClubListViewModel>();
+    var hasClubs = clubs.Any();
 }
 
 <div class="d-flex justify-content-between align-items-center mb-2">
@@ -77,27 +88,19 @@
 <hr />
 
 <!-- ================= 社團列表 ================= -->
-@if (!Model.Clubs.Any())
+@if (!hasClubs)
 {
     <p>找不到符合條件的社團</p>
 }
 else
 {
     <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>社團名稱</th>
-                <th>描述</th>
-                <th>成員數</th>
-                <th></th>
-            </tr>
-        </thead>
         <tbody>
-            @foreach (var club in Model.Clubs)
+            @foreach (var club in clubs)
             {
                 <tr>
-                    <td>@club.ClubName</td>
-                    <td>@club.Description</td>
+                    <td>@(club.ClubName ?? "—")</td>
+                    <td>@(club.Description ?? "—")</td>
                     <td>@club.MemberCount</td>
                     <td>
                         <a asp-action="Details"
@@ -113,15 +116,15 @@ else
 }
 
 <!-- ================= 分頁 ================= -->
-@if (Model.TotalPages > 1)
+@if ((Model?.TotalPages ?? 0) > 1)
 {
     <nav>
         <ul class="pagination">
             <!-- 上一頁 -->
-            <li class="page-item @(Model.CurrentPage == 1 ? "disabled" : "")">
+            <li class="page-item @((Model?.CurrentPage ?? 1) == 1 ? "disabled" : "")">
                 <a class="page-link"
                    asp-action="Index"
-                   asp-route-Page="@(Model.CurrentPage - 1)"
+                   asp-route-Page="@( (Model?.CurrentPage ?? 1) - 1 )"
                    asp-route-Keyword="@keyword"
                    asp-route-SortBy="@sortBy"
                    asp-route-SortOrder="@sortOrder"
@@ -131,9 +134,9 @@ else
             </li>
 
             <!-- 頁碼 -->
-            @for (int i = 1; i <= Model.TotalPages; i++)
+            @for (int i = 1; i <= (Model?.TotalPages ?? 0); i++)
             {
-                <li class="page-item @(i == Model.CurrentPage ? "active" : "")">
+                <li class="page-item @(i == (Model?.CurrentPage ?? 1) ? "active" : "")">
                     <a class="page-link"
                        asp-action="Index"
                        asp-route-Page="@i"
@@ -147,10 +150,10 @@ else
             }
 
             <!-- 下一頁 -->
-            <li class="page-item @(Model.CurrentPage == Model.TotalPages ? "disabled" : "")">
+            <li class="page-item @((Model?.CurrentPage ?? 1) == (Model?.TotalPages ?? 1) ? "disabled" : "")">
                 <a class="page-link"
                    asp-action="Index"
-                   asp-route-Page="@(Model.CurrentPage + 1)"
+                   asp-route-Page="@( (Model?.CurrentPage ?? 1) + 1 )"
                    asp-route-Keyword="@keyword"
                    asp-route-SortBy="@sortBy"
                    asp-route-SortOrder="@sortOrder"

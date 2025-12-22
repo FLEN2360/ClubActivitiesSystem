@@ -4,6 +4,7 @@ using ClubActivitiesSystem.Db;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ClubActivitiesSystem.Migrations
 {
     [DbContext(typeof(DBContext))]
-    partial class DBContextModelSnapshot : ModelSnapshot
+    [Migration("20251222073100_AddGuestFieldsToEventRegistration")]
+    partial class AddGuestFieldsToEventRegistration
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -304,9 +307,13 @@ namespace ClubActivitiesSystem.Migrations
 
                     b.HasIndex("UserId");
 
+                    b.HasIndex("EventId", "GuestEmail")
+                        .IsUnique()
+                        .HasDatabaseName("IX_EventRegistration_EventId_GuestEmail")
+                        .HasFilter("[guest_email] IS NOT NULL");
+
                     b.HasIndex("EventId", "UserId")
                         .IsUnique()
-                        .HasDatabaseName("IX_event_registrations_event_id_user_id")
                         .HasFilter("[user_id] IS NOT NULL");
 
                     b.ToTable("event_registrations");
